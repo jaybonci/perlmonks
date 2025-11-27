@@ -308,4 +308,3 @@ sub ymdhms2gm
     $fields[1]--;
     return timegm( reverse @fields );
 }
-

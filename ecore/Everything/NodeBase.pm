@@ -47,8 +47,9 @@ sub BEGIN
         );
 }
 
-my $dbases = {};
-my $caches = {};
+use vars qw{ $dbases $caches };
+$dbases = {};
+$caches = {};
 
 
 #############################################################################
@@ -169,6 +170,24 @@ sub getCache
     return $this->{cache};
 }
 
+#############################################################################
+#   Sub
+#       getMemCache
+#
+#   Purpose
+#       This returns the MemCache object that we are using to cache
+#       various things for a limited time.
+#
+#   Returns
+#       A reference to the Cache::Memcached object
+#
+sub getMemCache
+{
+#    my ($this) = @_;
+#
+#    return $this->getCache->{memcache};
+}
+
 
 #############################################################################
 #   Sub
@@ -260,7 +279,8 @@ sub sqlSelectMany
     $sql .= "WHERE $where " if $where;
     $sql .= "$other" if $other;
 
-    my $cursor = $this->{dbh}->prepare($sql);
+    my $cursor = $this->{dbh}->prepare($sql)
+        or warn $sql;
 
     return $cursor if($cursor->execute());
     return undef;
@@ -429,20 +449,28 @@ sub getNode
     $NODE = $this->{cache}->getCachedNodeByName($title, $$TYPE{title});
     return $NODE if(defined $NODE);
 
+
     my $typename = $TYPE ? $$TYPE{title} : '<any>';
 
     #Everything::printLog("getNode: Cache miss for '$title' [$typename]");
 
     ($NODE) =  $this->getNodeWhere({ title => $title }, $TYPE);
     # SQLite needs the following too:
-    #if (!defined $NODE) {
-    #    ($NODE) = $this->getNodeWhere({ "upper(title)" => uc $title }, $TYPE);
-    #}
+    if (!defined $NODE) {
+        # This is horribly expensive, so we warn about names that we don't find
+        Everything::printLog(sprintf "[%s] Slow search for '%s'", (caller(1))[2], $title);
+        ($NODE) = $this->getNodeWhere({ "upper(title)" => uc $title }, $TYPE);
+    };
+    if (defined $NODE and $NODE->{title} ne $title) {
+        Everything::printLog(sprintf "[%s] Node '%s' should be called '%s' [%s]", (caller(1))[2], $title, $NODE->{title}, $typename);
+    };
 
     if(defined $NODE)
     {
         $this->{cache}->cacheNode($NODE);
-    }
+    #} else {
+    #    Everything::printLog("getNode: Total miss for '$title' [$typename]");
+    };
 
     return $NODE;
 }
@@ -910,7 +938,7 @@ sub insertNode
     {
         # Check to see if we already have a node of this title.
         my $DUPELIST = $this->sqlSelect("*", "node", "title=" .
-            $this->quote($title) . " && type_nodetype=" . $$TYPE{node_id});
+            $this->quote($title) . " and type_nodetype=" . $$TYPE{node_id});
 
         if ($DUPELIST)
         {
@@ -926,10 +954,15 @@ sub insertNode
             author_user => $this->getId($USER),
             hits => 0,
             -createtime => 'now()',
-                        -ucreatetime=>'unix_timestamp()'});
+            -nodeupdated => 'now()',
+            -ucreatetime=> 'unix_timestamp(now())'});
 
     # Get the id of the node that we just inserted.
-    my ($node_id) = $this->sqlSelect("LAST_INSERT_ID()");
+    #my ($node_id) = $this->sqlSelect("LAST_INSERT_ID()");
+    my $node_id = $this->{dbh}->last_insert_id(
+        undef, undef, 'node', 'node_id',
+    );
+    warn "last_insert_id: $node_id";
 
     # Now go and insert the appropriate rows in the other tables that
     # make up this nodetype;
@@ -1096,7 +1129,7 @@ sub getType
         {
             $TYPE = $this->sqlSelectHashref("*",
                 "node left join nodetype on node_id=nodetype_id",
-                "title=" . $this->quote($idOrName) . " && type_nodetype=1");
+                "title=" . $this->quote($idOrName) . " and type_nodetype=1");
 
             $fromCache = 0;
         }
@@ -1110,7 +1143,7 @@ sub getType
         {
             $TYPE = $this->sqlSelectHashref("*",
                 "node left join nodetype on node_id=nodetype_id",
-                "node_id=$idOrName && type_nodetype=1");
+                "node_id=$idOrName and type_nodetype=1");
 
             $fromCache = 0;
         }
@@ -1242,7 +1275,10 @@ sub getFieldsHash
     $getHash = 1 if(not defined $getHash);
     $table ||= "node";
 
-    my $cursor = $this->{dbh}->prepare_cached("show columns from $table");
+    # MySQL
+    #my $cursor = $this->{dbh}->prepare_cached("show columns from $table");
+    # Rest of the world
+    my $cursor = $this->{dbh}->table_info(undef, undef, $table, 'table');
 
     $cursor->execute;
     while ($field = $cursor->fetchrow_hashref)
@@ -1273,9 +1309,13 @@ sub getFieldsHash
 sub tableExists
 {
     my ($this, $tableName) = @_;
-    my $cursor = $this->{dbh}->prepare("show tables");
+
     my $table;
     my $exists = 0;
+    # MySQL
+    #my $cursor = $this->{dbh}->prepare("show tables");
+    # Rest of the world, including SQLite
+    my $cursor = $this->{dbh}->table_info('','',$table,'TABLE');
 
     $cursor->execute();
     while((($table) = $cursor->fetchrow()) && (not $exists))
@@ -1570,14 +1610,14 @@ sub genWhereString
         if($tempstr ne "")
         {
             #different elements are joined together with ANDS
-            $wherestr .= " && \n" if($wherestr ne "");
+            $wherestr .= " and \n" if($wherestr ne "");
             $wherestr .= $tempstr;
         }
     }
 
     if(defined $TYPE)
     {
-        $wherestr .= " &&" if($wherestr ne "");
+        $wherestr .= " and" if($wherestr ne "");
         $wherestr .= " type_nodetype=$$TYPE{node_id}";
     }
 
@@ -2084,6 +2124,7 @@ sub canReadNode
 #   it will be for one $USER and most likely three or four
 #   groups. It wont be large.
 
+use vars '%typecache';
 sub isApproved
 {
     my( $this, $USER, $GROUP, $NODE, $notgod )= @_;
@@ -2108,8 +2149,13 @@ sub isApproved
             if(  $type  ) {
                 $GROUP= $this->getNode( $name, $type );
             } else {
-                $GROUP= $this->getNode( $name, 'usergroup' )
-                    ||  $this->getNode( $name, 'accessrule' );
+                if ($typecache{ $name }) {
+                    $GROUP = $this->getNode( $name, $typecache{ $name } )
+                } else {
+                    $GROUP= $this->getNode( $name, 'usergroup' )
+                        ||  $this->getNode( $name, 'accessrule' );
+                    $typecache{ $name } = $GROUP->{type_nodetype};
+                };
             }
         }
     }
@@ -2385,7 +2431,7 @@ sub insertIntoNodegroup
                 # If orderby is greater than the current max orderby, we
                 # don't need to do this.
                 $this->sqlUpdate($groupTable, { '-orderby' => 'orderby+1' },
-                    $groupTable. "_id=$$NODE{node_id} && orderby>=$orderby");
+                    $groupTable. "_id=$$NODE{node_id} and orderby>=$orderby");
             }
             elsif(not defined $orderby)
             {
@@ -2447,7 +2493,7 @@ sub removeFromNodegroup
     my $node_id = $this->getId($NODE);
 
     $success = $this->sqlDelete ($groupTable,
-        $groupTable . "_id=$$GROUP{node_id} && node_id=$node_id");
+        $groupTable . "_id=$$GROUP{node_id} and node_id=$node_id");
 
     if($success)
     {
@@ -2495,4 +2541,3 @@ sub replaceNodegroup
 #############################################################################
 
 1;
-

@@ -65,21 +65,19 @@ sub BEGIN
         getCallStack
         printErr
         printLog
-    >;
+        >;
 }
 
 use vars qw($DB);
 
 # $dbh is deprecated.  Use $DB->getDatabaseHandle() to get the DBI interface
-use vars qw($dbh);
+use vars qw($dbh $everythingLog);
 
 # If you want to log to a different file, change this.
-my $everythingLog = "/usr/tmp/everything.errlog";
+$everythingLog = "/tmp/everything.errlog";
 
 # Used by Makefile.PL to determine the version of the install.
-$VERSION = "1.00408";
-
-
+$VERSION = "1.00407";
 
 #############################################################################
 #
@@ -203,7 +201,6 @@ sub getRef
 #
 sub getId
 {
-    if(!$DB) { warn "getId: \$DB not initialized"; warn join ' / ', caller(); };
     return $DB->getId(@_);
 }
 
@@ -661,7 +658,7 @@ sub updateHits
                 {
                     hits    => 1,
                     hour    => 0,
-                    -day    => 'now()',
+                    -day    => 'cast( now() as date )',
                     node_id => $NODE->{node_id},
                 },
             );
@@ -693,23 +690,34 @@ sub selectLinks
     my ($FROMNODE, $orderby) = @_;
 
     my $obstr = "";
-    my @links;
+    #my @links;
     my $cursor;
 
     $obstr = " ORDER BY $orderby" if $orderby;
+    
+    # Cache these in memcached, if we have one
+    my $id = 0+getId($FROMNODE);
+    my $cache_key = "l/$id/$orderby";
+    #if (my $val = $DB->getMemCache->get($cache_key)) {
+    #    return $val
+    #};
 
     $cursor = $DB->sqlSelectMany ("*", 'links',
-        "from_node=". $DB->getDatabaseHandle()->quote(getId($FROMNODE)) .
+        #"from_node=". $DB->getDatabaseHandle()->quote(getId($FROMNODE)) .
+        "from_node=". ($id) .
         $obstr);
+    my $res = $cursor->fetchall_arrayref({});
+    #warn "Storing $cache_key";
+    #$DB->getMemCache->set($cache_key, $res, 60);
+    return $res;
 
-    while (my $linkref = $cursor->fetchrow_hashref())
-    {
-        push @links, $linkref;
-    }
+    #while (my $linkref = $cursor->fetchrow_hashref())
+    #{
+    #    push @links, $linkref;
+    #}
+    #$cursor->finish;
 
-    $cursor->finish;
-
-    return \@links;
+    #return \@links;
 }
 
 
@@ -822,6 +830,9 @@ sub unlockNode {
 sub initEverything
 {
     my ($db, $staticNodetypes) = @_;
+    if ($staticNodetypes) {
+        warn "Using static nodetypes";
+    };
 
     $DB = new Everything::NodeBase($db, $staticNodetypes);
 
@@ -905,10 +916,17 @@ sub searchNodeName {
     }
 
     return unless @words;
+    
+    my $dbh = $DB->getDatabaseHandle;
 
     my $match = "";
     foreach my $word (@words) {
-        $word =~ s#(['%_\\])#\\$1#g;
+        #$word =~ s#(['%_\\])#\\$1#g;
+        Everything::printLog("Quoting '$word'");
+        $word = $dbh->quote($word);
+        # Strip off the leading and trailing quote again
+        $word =~ s/^'//;
+        $word =~ s/'$//;
         if(  $word !~ /^ /  ) {
             $word = "( title like '%$word%' )";
         } else {
@@ -917,15 +935,20 @@ sub searchNodeName {
     }
 
     ##deltaTime( my $when );
-    $match = '( ' . join(' + ',@words) . ' )';
-    my $dbh= $DB->getDatabaseHandle();
+    $match = '( sum' . join(' + sum',@words) . ')';
+    $dbh= $DB->getDatabaseHandle();
     my $sth= $dbh->prepare( my $statement= "
         SELECT *, $match as wordsmatched
         FROM node
         WHERE node_id >= ? $typestr
+        GROUP BY node_id
         HAVING wordsmatched >= ?
         ORDER BY node_id LIMIT ?"
     );
+    warn "Searching $searchWords via >>$statement<<";
+    if (! $sth) {
+        warn "Couldn't prepare >>$statement<< :" . $dbh->errstr;
+    };
 
     my @ret;
     my $words= 1;
@@ -1051,4 +1074,3 @@ sub getCallStack
 #############################################################################
 
 1;
-

@@ -1,0 +1,23 @@
+{
+  "database": {
+    "name": "perlmonks",
+    "host": "pmdevdb",
+    "port": 3306,
+    "user": "pmuser",
+    "password": "pmpass"
+  },
+  "environment": "development",
+  "site": {
+    "name": "PerlMonks",
+    "domain": "localhost",
+    "canonical_url": "http://localhost:9180"
+  },
+  "cache": {
+    "max_size": 300
+  },
+  "paths": {
+    "libraries": "/var/libraries/lib/perl5",
+    "ecore": "/var/everything/ecore",
+    "logs": "/var/log/everything"
+  }
+}

@@ -8,7 +8,8 @@ package Everything::MAIL;
 
 use strict;
 use Everything;
-use MIME::Lite;
+
+
 
 sub BEGIN {
 	use Exporter ();
@@ -29,29 +30,26 @@ sub node2mail {
 		$DB->getType("user"));
 	my $subject = $$node{title};
 	my $body = $$node{doctext};
+	use Mail::Sender;
 
 	my $SETTING = getNode('mail settings', 'setting');
-	my ($mailserver, $from, $reply_to);
+	my ($mailserver, $from);
 	if ($SETTING) {
 		my $MAILSTUFF = getVars $SETTING;
 		$mailserver = $$MAILSTUFF{mailServer};
                 $from=$fromoverride;
 		$from ||= $$MAILSTUFF{systemMailFrom};
-		$reply_to = $$MAILSTUFF{systemMailReplyTo};
 	} else {
 		$mailserver = "localhost";
 		$from = "root\@localhost";
 	}
-        $reply_to //= $from;
 
-        MIME::Lite->new(
-            From => $from,
-            To   => $addr,
-            "Reply-To" => $reply_to,
-            Subject => $subject,
-            Data    => $body,
-        )->send('smtp');
-    return 0;
+
+	my $sender = new Mail::Sender{smtp => $mailserver, from => $from};
+	$sender->MailMsg({to=>$addr,
+			subject=>$subject,
+			msg => $body});
+	$sender->Close();                
 }
 
 sub mail2node
@@ -95,4 +93,3 @@ sub mail2node
 	}
 }
 1;
-

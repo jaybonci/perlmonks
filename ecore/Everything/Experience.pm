@@ -274,4 +274,3 @@ sub castVote {
 }
 
 1;
-

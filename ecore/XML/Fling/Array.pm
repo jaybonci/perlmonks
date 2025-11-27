@@ -92,4 +92,3 @@ sub XML::Fling::Array::get {
 }
 
 1;
-

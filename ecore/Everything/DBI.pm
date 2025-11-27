@@ -314,4 +314,3 @@ __END__
     fetchall_hashref        0+keys %$ret
     finish                  0
     DESTROY                 0
-

@@ -177,10 +177,10 @@ BEGIN
     for(_test){ goto &$_ if $_ }
     my( $html, $APPROVED )= @_;
     $APPROVED ||= getVars( getNodeById($HTMLVARS{default_tags}) ) || {};
-    my $htmlNest= ($q->param('htmlnest'))[-1];
+    my $htmlNest= ($q->multi_param('htmlnest'))[-1];
     $htmlNest= $VARS->{htmlnest}   if  ! defined $htmlNest;
     ## my $htmlNest= '0' ne ($q->param('htmlnest'))[-1];
-    my $htmlError= ($q->param('htmlerror'))[-1];
+    my $htmlError= ($q->multi_param('htmlerror'))[-1];
     $htmlError= 0 + ( '0'.$htmlError || $VARS->{htmlerror} );
 
     my %depth;
@@ -796,7 +796,7 @@ sub linkNode {
 
     my $attrs;
     if( my $val = $OTHER->{rel}  ) {
-        $attrs= qq{rel="$val" };
+        $attrs= qq{ rel="$val"};
     }
 
     # to 2011-04-02 07:00:00 regardless of user's timezone
@@ -852,7 +852,7 @@ sub nodeName
     my( $node )= @_;
     my $NODE;
 
-    my @types= $q->param("type");
+    my @types= $q->multi_param("type");
     foreach(  @types  ) {
         $_ = getId( getType($_) );
     }
@@ -875,22 +875,13 @@ sub nodeName
         my @link;
         $node =~ tr/[]//d;
         handleLinks( $node, \@link );
-        # This turns Perlmonks into an open redirect, as requests like
-        #   https://perlmonks.org/?node=http://hidden.spam
-        # will get redirected to
-        #   http://hidden.spam
-        # This is why we disable this redirect for HTTP(s)
         if(  $link[0]  ) {
             my $title= $link[1];
             $title =~ s/\s+/ /g;
-            if( $node =~ m!^https?://!i ) {
-                warn "Ignored redirect to <<$link[0]>>";
-            } else {
-                print $q->redirect(
-                    -url => 'https://perlmonks.org/',
-                    '-X-Title' => $title );
-                return;
-            };
+            print $q->redirect(
+                -url => $link[0],
+                '-X-Title' => $title );
+            return;
         }
     }
 
@@ -1330,7 +1321,7 @@ sub displayPage
     die "NO NODE!" unless $NODE;
     $GNODE = $NODE;
 
-    my $PAGE= getPage( $NODE, $q->param('displaytype') );
+    my $PAGE= getPage( $NODE, scalar $q->param('displaytype') );
     my $page= $PAGE->{page} || 'No page :<';
 
     die "NO PAGE!" unless $page;
@@ -1425,10 +1416,10 @@ sub gotoNode
         if(  my $groupadd= $q->param('add')  ) {
             insertIntoNodegroup(
                 $NODE, $USER, $groupadd,
-                $q->param('orderby') );
+                scalar $q->param('orderby') );
         }
 
-        if(  $q->param('group')  ) {
+        if(  scalar $q->param('group')  ) {
             my @newgroup;
 
             my $counter= 0;
@@ -1439,7 +1430,7 @@ sub gotoNode
             replaceNodegroup( $NODE, \@newgroup, $USER );
         }
 
-        my @updatefields= $q->param();
+        my @updatefields= $q->multi_param();
         my $updateflag;
 
         my $isGod= isGod($USER) ? 'gods' : 0;
@@ -1552,7 +1543,7 @@ sub confirmUser
     #  . ' VALUES( ?, ?, NOW() )'
     #);
     #$in->execute( getId($USER), $ip );
-    my $sql= sprintf 
+    my $sql= sprintf
         'REPLACE INTO iplog( user_id, ip_id, tstamp )'
       . ' VALUES( %s, %s, NOW() )',
       map{$DB->getDatabaseHandle->quote($_)} getId($USER), $ip;
@@ -1633,14 +1624,15 @@ sub loginUser
 #   Returns
 #       The CGI object.
 #
+use vars '$cgi';
 sub getCGI
 {
-    my $cgi;
+    #my $cgi;
 
     if ($ENV{SCRIPT_NAME}) {
-        $cgi = Everything::CGI->new();
+        $cgi ||= Everything::CGI->new();
     } else {
-        $cgi = Everything::CGI->new(\*STDIN);
+        $cgi ||= Everything::CGI->new(\*STDIN);
     }
 
     if (not defined ($cgi->param("op"))) {
@@ -1735,6 +1727,8 @@ sub getHttpHeader
 #
 sub printHeader
 {
+    # Note: Don't print "HTTP/1.1 200 OK" - that's NPH style which breaks CGI mode.
+    # Apache handles the status line; we just print headers.
     print getHttpHeader(@_);
 }
 
@@ -1857,8 +1851,7 @@ sub opLogin
             crypt( $passwd, $salt ),
             $q->param('ticker') eq "yes",
         ),
-        -httponly => 'yes',
-        $q->param('expires') ? (-expires => $q->param("expires")) : (),
+        -expires => scalar $q->param("expires")
     );
 }
 
@@ -1905,7 +1898,7 @@ sub opNew
                 "node_id",
                 "node",
                 "title=" . $DB->quote($nodename)
-                  . " && type_nodetype=" . $$TYPE{node_id});
+                  . " and type_nodetype=" . $$TYPE{node_id});
         }
 
         {
@@ -1920,7 +1913,7 @@ sub opNew
         }
 
         my $NODE= getNodeById($node_id);
-        my @updatefields = $q->param;
+        my @updatefields = $q->multi_param;
         my $updateflag;
         $NODE= getNodeById($node_id);
         my $RESTRICTED = getVars(getNode('restricted fields', 'setting'));
@@ -1995,7 +1988,7 @@ sub getOpCode
 sub execOpCode
 {
     my( $delayed )= @_;
-    for my $op (  $q->param('op')  ) {
+    for my $op (  $q->multi_param('op')  ) {
         next   if  ! $op;
         next   if  ( $op =~ /^_/ )  !=  !!$delayed;
         my $code = getOpCode($op);
@@ -2072,6 +2065,8 @@ sub mod_perlInit
 
     # For anonyMonk, just use a cached, static front page:
     if( sub {
+            # We can't do that if we're not on Apache
+            return unless defined *{Apache::request}{CODE};
             return 0    if  "POST" eq uc $q->request_method();
             return 0    if  $HTMLVARS{guest_user} != getId($USER);
             return 0    if  $q->param( "notFromCache" );
@@ -2084,13 +2079,7 @@ sub mod_perlInit
             return 0;
         }->()
     ) {
-        my $request;
-    
-        # Apache2-specific code!!
-        use Apache2::RequestUtil;
-        $request= Apache2::RequestUtil->request;
-        $request->internal_redirect( "/cachedgates.html" );
-        return Apache2::Const::OK();
+        Apache->request()->internal_redirect( "/cachedgates.html" );
     } else {
 
         # Fill out the THEME hash
@@ -2109,4 +2098,3 @@ sub mod_perlInit
 #############################################################################
 
 1;
-

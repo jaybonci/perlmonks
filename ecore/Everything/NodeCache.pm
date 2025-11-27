@@ -43,7 +43,7 @@ package Everything::NodeCache;
 use strict;
 use Everything::CacheQueue;
 use Everything::NodeBase;
-
+#use Cache::Memcached;
 
 sub BEGIN
 {
@@ -94,6 +94,12 @@ sub new
 	$this->{version} = {};
     $this->{sessionCache} = {};
 
+        # we use v/nnn as the cache keys here
+        #$this->{memcache} = Cache::Memcached->new(
+        #    servers => ['localhost:11211','qs1969.pair.com:11211'],
+        #    compress_threshold => 100_000,
+        #);
+
 
 	if(not $this->{nodeBase}->tableExists("version"))
 	{
@@ -101,7 +107,7 @@ sub new
 		my $createTable;
 		my $dbh = $this->{nodeBase}->getDatabaseHandle();
 
-		$createTable = "create table version (";
+		$createTable = "create table if not exists version (";
 		$createTable .= "version_id int(11) default '0' not null, ";
 		$createTable .= "version int(11) default '1' not null, ";
 		$createTable .= "primary key (version_id))";
@@ -450,8 +456,18 @@ sub getGlobalVersion
 	my %version;
 	my $ver;
 
-	$ver = $this->{nodeBase}->sqlSelect("version", "version",
-		"version_id=$$NODE{node_id}");
+	# First ask our memcache daemon whether it knows about the
+	# node version. This saves us a MySQL roundtrip at the cost
+	# of potentially losing notification of some updates
+
+	#$ver = $this->{memcache}->get("v/$$NODE{node_id}");
+
+	if (not $ver) {
+	        $ver = $this->{nodeBase}->sqlSelect("version", "version",
+		        "version_id=$$NODE{node_id}");
+		# Cache any version only for a minute
+		#$this->{memcache}->set("v/$$NODE{node_id}",$ver,60);
+	}# else { warn "Version cache hit of $NODE->{node_id} ($ver)" }
 
 	if( (not defined $ver) || (not $ver) )
 	{
@@ -460,6 +476,7 @@ sub getGlobalVersion
 			{ version_id => $$NODE{node_id}, version => 1 } );
 
 		$ver = 1;
+		#$this->{memcache}->set("v/$$NODE{node_id}",$ver,60);
 	}
 
 	return $ver;
@@ -516,4 +533,3 @@ sub incrementGlobalVersion
 #############################################################################
 
 1;
-

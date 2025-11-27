@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "command": "./docker/devbuild.sh",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "label": "Build PerlMonks dev environment"
+        },
+        {
+            "type": "shell",
+            "command": "./docker/devbuild.sh --app",
+            "group": "build",
+            "label": "Rebuild app container only"
+        },
+        {
+            "type": "shell",
+            "command": "./docker/devclean.sh",
+            "group": "build",
+            "label": "Stop containers"
+        },
+        {
+            "type": "shell",
+            "command": "./docker/devclean.sh --full",
+            "group": "build",
+            "label": "Clean everything (containers + images)"
+        }
+    ]
+}
