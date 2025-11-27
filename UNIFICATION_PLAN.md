@@ -4,13 +4,13 @@
 
 ## Executive Summary
 
-This document outlines the plan to unify PerlMonks with the Everything2 codebase, creating a shared engine that can power both sites while respecting their distinct communities and content. The goal is to bring PerlMonks onto the same modernization path as E2, enabling shared development effort and consistent architecture.
+This document outlines a plan to unify PerlMonks with the Everything2 codebase, creating a shared engine that can power both sites while respecting their distinct communities and content. The goal is to bring PerlMonks onto the same modernization path as E2, enabling shared development effort and consistent architecture.
 
-**Key Constraint:** We will not modify the E2 codebase to support PerlMonks at this stage. Instead, PerlMonks will adopt E2's patterns and eventually both will share the same core libraries.
+**Key Constraint:** E2 is significantly further along, and has a greater community tolerance for JavaScript/React based interfaces. Strategic discussion between PM and E2 leadership about the very concept of partial unification need to happen.
 
-**Infrastructure Target:** Traditional LAMP stack (Linux, Apache, MySQL, Perl) - no AWS dependencies.
+**Infrastructure Target:** Traditional LAMP stack (Linux, Apache, MySQL, Perl) - no AWS dependencies. Everything2 runs fully on AWS ECS, backended by RDS, S3, and integrated into those monitoring and scaling primitives.
 
-**Note on Database:** PerlMonks production runs on MySQL. The SQLite database in `db/perlmonks.sqlite` is a sanitized, converted MySQL dump provided for development environment bootstrapping. The schema is MySQL-compatible and **node_ids are preserved** - critical for the many hardcoded node references in the codebase.
+**Note on Database:** PerlMonks production also runs on MySQL. The SQLite database in `db/perlmonks.sqlite` is a sanitized, converted MySQL dump provided for development environment bootstrapping. The schema is MySQL-compatible and **node_ids are preserved** - critical for the many hardcoded node references in the codebase.
 
 **Development Ports:** Since E2 and PerlMonks development may run on the same machine, PerlMonks uses different ports:
 - HTTP: **9180** (E2 uses 9080)
@@ -46,7 +46,7 @@ This document outlines the plan to unify PerlMonks with the Everything2 codebase
 1. Both use MySQL in production (reference SQLite dump provided for dev bootstrapping)
 2. PerlMonks has additional tables: `approval`, `polls`, `pollvote`, `traffic_stats`, `tomb`, `considernodes`
 3. E2 has migrated database-stored code to filesystem (`Everything::Delegation::*`)
-4. E2 uses Moose-based OOP; PerlMonks is procedural
+4. E2 is transitioning to use Moose-based OOP; PerlMonks is procedural
 
 ### 1.2 Code Comparison
 
