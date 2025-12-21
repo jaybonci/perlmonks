@@ -32,7 +32,7 @@ BEGIN {
     *linkNodeTitle = *Everything::HTML::linkNodeTitle;
     *urlGen = *Everything::HTML::urlGen;
     *isGod = *Everything::HTML::isGod;
-    *isApproved = *Everything::HTML::isApproved;
+    *isApproved = *Everything::isApproved;
     *getType = *Everything::HTML::getType;
 }
 

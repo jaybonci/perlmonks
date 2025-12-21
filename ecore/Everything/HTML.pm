@@ -18,6 +18,7 @@ use Everything;
 require Everything::CGI;
 use Everything::Experience qw( getLevel );
 use Everything::Delegation::container;
+use Everything::Delegation::htmlcode;
 use CGI::Carp;
 # qw(fatalsToBrowser);
 
@@ -1000,6 +1001,20 @@ sub evalCode {
 sub htmlcode {
     my( $func )= shift @_;
     my( $args )= shift @_;
+
+    # Try delegation first (E2 pattern)
+    # Normalize function name: spaces/hyphens become underscores
+    my $delegation_name = $func;
+    $delegation_name =~ s/[\s\-]/_/g;
+
+    if (my $delegation = Everything::Delegation::htmlcode->can($delegation_name)) {
+        # Use delegated htmlcode function
+        my @call_args = split /\s*,\s*/, ($args // '');
+        push @call_args, @_;
+        return $delegation->(@call_args);
+    }
+
+    # Fallback to legacy database code
     my $code= getCode( $func );
     unshift @_, split /\s*,\s*/, $args;
     evalCode( $code, undef, @_ )   if  $code;
