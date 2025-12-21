@@ -17,6 +17,7 @@ use Everything;
 #use Everything::DbStats qw( DbStatsBeginHit DbStatsEndHit );
 require Everything::CGI;
 use Everything::Experience qw( getLevel );
+use Everything::Delegation::container;
 use CGI::Carp;
 # qw(fatalsToBrowser);
 
@@ -1330,9 +1331,22 @@ sub displayPage
 
     $page= parseCode( $page, $NODE );
     if(  $PAGE->{parent_container}  ) {
-        my $container= genContainer($$PAGE{parent_container});
-        $container =~ s/CONTAINED_STUFF/$page/s;
-        $page= $container;
+        my $container_node = $DB->getNodeById($$PAGE{parent_container});
+
+        # Try delegation first (E2 pattern)
+        my $container_title = $container_node->{title};
+        $container_title =~ s/[\s\-]/_/g;  # Normalize to valid Perl identifier
+
+        if (my $delegation = Everything::Delegation::container->can($container_title)) {
+            # Use delegated container function
+            # Globals accessed via _get_globals(), only pass contained content
+            $page = $delegation->($page);
+        } else {
+            # Fallback to legacy genContainer for non-delegated containers
+            my $container = genContainer($$PAGE{parent_container});
+            $container =~ s/CONTAINED_STUFF/$page/s;
+            $page = $container;
+        }
     }
 
     # Now, clean out everything out of $VARS
